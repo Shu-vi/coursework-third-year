@@ -23,3 +23,6 @@
 hs_err_pid*
 
 .idea
+target
+src/main/java/GetProperties.java
+src/main/java/test.java
