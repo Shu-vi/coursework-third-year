@@ -5,9 +5,9 @@ import lombok.Setter;
 
 @Setter @Getter
 public abstract class BaseEntity {
-    protected Integer id;
+    protected Long id;
 
-    BaseEntity(Integer id){
+    BaseEntity(Long id){
         this.id = id;
     }
 

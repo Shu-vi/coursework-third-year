@@ -12,12 +12,12 @@ public class DatabaseControl {
 
 
     @SneakyThrows
-    private void connectToDB(){
+    private void connectToDB() {
         this.connection = DriverManager.getConnection(db_url, db_username, db_password);
     }
 
     @SneakyThrows
-    private void disconnectBD(){
+    private void disconnectBD() {
         this.connection.close();
     }
 
@@ -27,12 +27,11 @@ public class DatabaseControl {
         Statement statement = connection.createStatement();
         ResultSet result = statement.executeQuery("select * from t_user");
         ArrayList<User> users = new ArrayList<>();
-        while (result.next()){
+        while (result.next()) {
             users.add(new User(
-                    result.getInt("id"),
+                    result.getLong("id"),
                     result.getString("name"),
-                    result.getString("second_name"),
-                    result.getInt("chat_id")
+                    result.getString("second_name")
             ));
         }
         disconnectBD();
@@ -40,18 +39,17 @@ public class DatabaseControl {
     }
 
     @SneakyThrows
-    public User getUserById(Integer id) {
+    public User getUserById(Long id) {
         connectToDB();
         PreparedStatement statement = connection.prepareStatement("select * from t_user where id = ?");
-        statement.setInt(1, id);
+        statement.setLong(1, id);
         ResultSet result = statement.executeQuery();
         User user = null;
-        while (result.next()){
+        while (result.next()) {
             user = new User(
-                    result.getInt("id"),
+                    result.getLong("id"),
                     result.getString("name"),
-                    result.getString("second_name"),
-                    result.getInt("chat_id")
+                    result.getString("second_name")
             );
         }
         disconnectBD();
@@ -59,16 +57,27 @@ public class DatabaseControl {
     }
 
     @SneakyThrows
-    public ArrayList<String> getGroupsByUserId(Integer idUser){
+    public ArrayList<String> getGroupsByUserId(Long idUser) {
         connectToDB();
         ArrayList<String> groups = new ArrayList<>();
         PreparedStatement preparedStatement = connection.prepareStatement("select name from t_group, groups where groups.id_user = ? AND t_group.id = groups.id_group");
-        preparedStatement.setInt(1, idUser);
+        preparedStatement.setLong(1, idUser);
         ResultSet result = preparedStatement.executeQuery();
-        while (result.next()){
+        while (result.next()) {
             groups.add(result.getString("name"));
         }
         disconnectBD();
         return groups;
+    }
+
+    @SneakyThrows
+    public void addUser(Long id, String name, String secondName) {
+        connectToDB();
+        PreparedStatement statement = connection.prepareStatement("insert into t_user(id, name , second_name) values (?, ?, ?)");
+        statement.setLong(1, id);
+        statement.setString(2, name);
+        statement.setString(3, secondName);
+        statement.executeUpdate();
+        disconnectBD();
     }
 }
