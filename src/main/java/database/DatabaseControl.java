@@ -3,6 +3,7 @@ package database;
 import entity.Group;
 import entity.User;
 import lombok.SneakyThrows;
+import org.joda.time.DateTime;
 import properties.GetProperties;
 
 import java.sql.*;
@@ -119,6 +120,17 @@ public class DatabaseControl {
     }
 
     @SneakyThrows
+    public void deleteUserFromGroupById(Long userId, String groupName){
+        Long groupId = getGroupIdByGroupName(groupName);
+        connectToDB();
+        PreparedStatement preparedStatement = connection.prepareStatement("delete from groups where groups.id_user = ? and groups.id_group = ?");
+        preparedStatement.setLong(1, userId);
+        preparedStatement.setLong(2, groupId);
+        preparedStatement.execute();
+        disconnectBD();
+    }
+
+    @SneakyThrows
     public void addToGroup(String userCode, String groupName){
         Long userId = getUserIdByUserCode(userCode);
         Long groupId = getGroupIdByGroupName(groupName);
@@ -178,6 +190,46 @@ public class DatabaseControl {
         }
         disconnectBD();
         return user;
+    }
+
+    @SneakyThrows
+    public void createAssignment(Long idUserFrom, Long idUserTo, Long idGroupTo, String detail, DateTime dateTime){
+        connectToDB();
+        Timestamp timestamp = new Timestamp(dateTime.getMillis());
+        PreparedStatement statement = connection.prepareStatement("insert into assignment(id_user_from, id_user_to, id_group_to, detail, time, report, edits, done) values (?, ?, ?, ?, ?, \' \', \' \', false)");
+        statement.setLong(1, idUserFrom);
+        if (idUserTo==null)
+            statement.setNull(2, Types.BIGINT);
+        else
+            statement.setLong(2, idUserTo);
+        if (idGroupTo==null)
+            statement.setNull(3, Types.BIGINT);
+        else
+            statement.setLong(3, idGroupTo);
+        statement.setString(4, detail);
+        statement.setTimestamp(5, timestamp);
+        statement.execute();
+        disconnectBD();
+    }
+
+    @SneakyThrows
+    public Long getLastIdFromAssigment(){
+        connectToDB();
+        Statement statement = connection.createStatement();
+        ResultSet resultSet = statement.executeQuery("select max(id) from assignment");
+        resultSet.next();
+        Long id = resultSet.getLong(1);
+        disconnectBD();
+        return id;
+    }
+
+    @SneakyThrows
+    public synchronized void setAssignmentDone(Long id){
+        connectToDB();
+        PreparedStatement statement = connection.prepareStatement("update assignment set open = FALSE where id = ?");
+        statement.setLong(1, id);
+        statement.execute();
+        disconnectBD();
     }
 
     @SneakyThrows

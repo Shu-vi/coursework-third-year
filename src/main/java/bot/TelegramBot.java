@@ -1,9 +1,12 @@
 package bot;
 
+import bot.command.handler.Timer;
 import codeGenerator.Code;
 import database.DatabaseControl;
+import entity.Assignment;
 import entity.Group;
 import lombok.SneakyThrows;
+import org.joda.time.DateTime;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -12,7 +15,6 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 import properties.GetProperties;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -72,7 +74,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     //TODO добавлять командные слова
     /**
-     * @param word поступаемое слово, которое нужно проверить, является ли оно командным.
+     * @param word поступающее слово, которое нужно проверить, является ли оно командным.
      * @return возвращает true, если слово является командой бля бота.
      */
     private Boolean commandWord(String word) {
@@ -80,9 +82,37 @@ public class TelegramBot extends TelegramLongPollingBot {
                 || word.equals("/help")
                 || word.equals("Мои группы")
                 || word.matches("^([Сс])оздать группу ([A-Za-zа-яА-Я-]+)$")
-                || word.matches("^([Дд])обавить в ([A-Za-zа-яА-Я-]+) участников ([A-Za-z0-9,]+)$");
+                || word.matches("^([Дд])обавить в ([A-Za-zа-яА-Я-]+) участников ([A-Za-z0-9,]+)$")
+                || word.matches("^([Вв])ыйти из группы ([A-Za-zА-Яа-я-]+)$")
+                || word.equals("Мой код")
+                || word.equals("Дать поручение");
     }
 
+    /*
+    * Дать поручение Пользователи ИЛИ Группа
+    * Детали поручения
+    * Время окончания поручения в формате ДД.ММ.ГГГГ ЧЧ:ММ
+    * */
+    //TODO
+    @SneakyThrows
+    private void commandGiveTask(Update update){
+        DateTime dateTime = new DateTime(2022, 3, 30, 13, 18, 0);//Пользователь ввёл дедлайн
+        Long idUserTo = 641955034L;
+        Long idUserFrom = update.getMessage().getChatId();
+        String detail = "Покушац";
+        //добавляем в базу
+        databaseControl.createAssignment(idUserFrom, idUserTo, null, detail, dateTime);
+        Long idAssignment = databaseControl.getLastIdFromAssigment();//вытаскиваем айди из базы
+        Timer timer = new Timer(
+                dateTime,
+                new Assignment(
+                    idAssignment, idUserFrom, idUserTo, detail, dateTime, "", "", false, true
+                ),
+                this
+        );
+        new Thread(timer).start();
+        execute(SendMessage.builder().chatId(idUserTo.toString()).text("Тебе тип дали поручение пожрать от пользователя " + databaseControl.getUserCodeByUserId(idUserFrom)).build());
+    }//Пользователь может сдавать задачи, указывая айди
 
     /**
      * Метод, в зависимости от типа Update, вызывает метод его обработки.
@@ -111,15 +141,33 @@ public class TelegramBot extends TelegramLongPollingBot {
             case "Мои группы":
                 commandShowGroups(update);
                 return;
+            case "Мой код":
+                commandShowCode(update);
+                return;
             default:
                 if (message.matches("^([Сс])оздать группу ([A-Za-zа-яА-Я-]+)$")){
                     createGroup(message, update);
                 } else if (message.matches("^([Дд])обавить в ([A-Za-zа-яА-Я-]+) участников ([A-Za-z0-9,]+)$")){
-                    System.out.println("Точка1");
                     addUsersToGroup(message, update);
+                } else if (message.matches("^([Вв])ыйти из группы ([A-Za-zА-Яа-я-]+)$")){
+                    exitFromGroup(update);
                 }
+                commandGiveTask(update);
                 return;
         }
+    }
+
+    private void exitFromGroup(Update update){//16
+        String subMessage = update.getMessage().getText().substring(16);
+        String groupName = getGroupNameFromString(subMessage);
+        databaseControl.deleteUserFromGroupById(update.getMessage().getChatId(), groupName);
+    }
+
+    @SneakyThrows
+    private void commandShowCode(Update update){
+        Long userId = update.getMessage().getChatId();
+        String text = "Ваш код: " + databaseControl.getUserCodeByUserId(userId);
+        execute(SendMessage.builder().text(text).chatId(userId.toString()).build());
     }
 
     /**
@@ -187,7 +235,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
 
     /**
-     * Извлекает из строки название группы.
+     * Извлекает из подстроки название группы.
      */
     private String getGroupNameFromString(String message){
         String subMessage = "";
@@ -207,7 +255,21 @@ public class TelegramBot extends TelegramLongPollingBot {
     @SneakyThrows
     private void commandHelp(Update update) {
         String messageText = "Доступные команды:\n" +
-                "1)\"Мои группы\" - выводит группы, в которые вас добавили\n";
+                "1) \"Мои группы\" - выводит группы, в которые вас добавили\n" +
+                "2) \"Создать группу Имя\" - создаёт группу с названием \"Имя\". Имя вашей группы должно быть " +
+                "написано кириллицей или латинецей, однако будьте " +
+                "внимательны, имя группы может состоять из нескольких слов, но они должны быть разделены знаком \"-\"." +
+                " Например, название группы \"Группа дизайнеров online\" является недопустимым, но \"Группа-дизайнеров-online\" " +
+                "уже будет допустимым.\n" +
+                "3) \"Мой код\" - выводит ваш персональный код. Можете сказать его тому, с кем будете пользоваться данным ботом" +
+                ". Персональный код нужен для того, чтобы добавить пользователя в группу или дать поручение конкретному пользователю.\n" +
+                "4) \"Добавить в Имя участников Коды\" - добавляет пользователей в группу. Для этого есть два условия:\n- " +
+                "Вы должны знать код человека, которого хотите добавить\n- Группа, в которую вы хотите добавить, должна быть" +
+                " предворительно создана\nВ данной команде \"Имя\" - точное название Вашей группы, \"Коды\" - коды пользователей" +
+                ", вы можете указать код как одного пользователя, так и нескольких, разделённых запятой." +
+                " Например, такой формат является недопустимым \"a3e178, 981b42\", однако два следующих формата будут допустимыми" +
+                " \"156a89\" и \"156a89,a3e178,981b42\".\n" +
+                "5) \"Выйти из группы Имя\" - позволяет Вам выйти из группы с названием Имя.";
         execute(
                 SendMessage.builder()
                         .text(messageText)
@@ -251,6 +313,7 @@ public class TelegramBot extends TelegramLongPollingBot {
      * Добавляет юзера в БД, если его там ещё нет.
      * Пишет юзеру приветствие.
      */
+    @SneakyThrows
     private void commandStart(Update update) {
         Long userId = update.getMessage().getFrom().getId();
         Code codeGenerator = new Code();
@@ -261,6 +324,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             databaseControl.addUser(userId, name, secondName, code);
         }
         sendGreeting(update);
+        commandShowCode(update);
     }
 
     /**
@@ -294,7 +358,7 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     /**
-     * Метод отправляет пользователю сообщение о том, что действие нераспознанно.
+     * Метод отправляет пользователю сообщение о том, что действие нераспознанное.
      */
     @SneakyThrows
     private void sendOther(Update update) {
@@ -308,7 +372,7 @@ public class TelegramBot extends TelegramLongPollingBot {
     public void initKeyboard() {
         inlineKeyboardMarkup = new InlineKeyboardMarkup();
         List<InlineKeyboardButton> buttonsRow1 = new ArrayList<>();
-        buttonsRow1.add(InlineKeyboardButton.builder().text("Мои группы").callbackData("1").build());
+        buttonsRow1.add(InlineKeyboardButton.builder().text("Мои группы").switchInlineQueryCurrentChat("Мои группы").build());
         List<List<InlineKeyboardButton>> rowArrayList = new ArrayList<>();
         rowArrayList.add(buttonsRow1);
         inlineKeyboardMarkup.setKeyboard(rowArrayList);
@@ -321,4 +385,4 @@ public class TelegramBot extends TelegramLongPollingBot {
         TelegramBotsApi telegramBotsApi = new TelegramBotsApi(DefaultBotSession.class);
         telegramBotsApi.registerBot(telegramBot);
     }
-}//TODO Создать и добавить в группу, выйти из группы, удалить группы(если в ней никого нет), дать поручение пользователю, дать поручение группе.
+}//TODO выйти из группы, удалить группы(если в ней никого нет), дать поручение пользователю, дать поручение группе.
