@@ -14,9 +14,9 @@ public class Timer implements Runnable{
     Assignment assignment;
     TelegramBot telegramBot;
 
-    public Timer(DateTime finish, Assignment assignment, TelegramBot telegramBot){
+    public Timer(Assignment assignment, TelegramBot telegramBot){
         this.start = new DateTime();
-        this.finish = finish;
+        this.finish = assignment.getDate();
         this.diff = this.finish.minus(this.start.getMillis());
         this.assignment = assignment;
         this.telegramBot = telegramBot;

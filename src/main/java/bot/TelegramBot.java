@@ -1,12 +1,8 @@
 package bot;
 
-import bot.command.handler.Timer;
-import codeGenerator.Code;
+import bot.command.handler.*;
 import database.DatabaseControl;
-import entity.Assignment;
-import entity.Group;
 import lombok.SneakyThrows;
-import org.joda.time.DateTime;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -17,8 +13,6 @@ import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 import properties.GetProperties;
 import java.util.ArrayList;
 import java.util.List;
-
-
 import static bot.Type.*;
 
 public class TelegramBot extends TelegramLongPollingBot {
@@ -34,13 +28,24 @@ public class TelegramBot extends TelegramLongPollingBot {
      */
     private Type type;
     /**
-     * Класс для взаимодействия с бд.
+     * Обработчики команд
      */
-    private DatabaseControl databaseControl;
+    private CommandHandlerStart commandHandlerStart;
+    private CommandHandlerHelp commandHandlerHelp;
+    private CommandHandlerShowCode commandHandlerShowCode;
+    private CommandHandlerGroup commandHandlerGroup;
+    private CommandHandlerAssignment commandHandlerAssignment;
+
+
 
     public TelegramBot(DatabaseControl databaseControl) {
-        this.databaseControl = databaseControl;
         initKeyboard();
+        this.commandHandlerShowCode = new CommandHandlerShowCode(this);
+        this.commandHandlerStart = new CommandHandlerStart(this.commandHandlerShowCode, this);
+        this.commandHandlerHelp = new CommandHandlerHelp(this, this.inlineKeyboardMarkup);
+        this.commandHandlerGroup = new CommandHandlerGroup(this);
+        this.commandHandlerAssignment = new CommandHandlerAssignment(this);
+
     }
 
     @Override
@@ -66,8 +71,6 @@ public class TelegramBot extends TelegramLongPollingBot {
     private synchronized void typeUpdate(Update update) {
         if (update.hasMessage() && update.getMessage().hasText() && commandWord(update.getMessage().getText()))
             this.type = MESSAGE;
-        else if (update.hasCallbackQuery())
-            this.type = CALLBACK;
         else
             this.type = OTHER;
     }
@@ -81,38 +84,13 @@ public class TelegramBot extends TelegramLongPollingBot {
         return word.equals("/start")
                 || word.equals("/help")
                 || word.equals("Мои группы")
-                || word.matches("^([Сс])оздать группу ([A-Za-zа-яА-Я-]+)$")
-                || word.matches("^([Дд])обавить в ([A-Za-zа-яА-Я-]+) участников ([A-Za-z0-9,]+)$")
-                || word.matches("^([Вв])ыйти из группы ([A-Za-zА-Яа-я-]+)$")
+                || word.matches("^([Сс])оздать группу: ([A-zА-я-]+)$")
+                || word.matches("^([Дд])обавить в: ([A-zА-я-]+) ([a-z0-9, ]+)$")
+                || word.matches("^([Вв])ыйти из группы: ([A-zА-я-]+)$")
                 || word.equals("Мой код")
-                || word.equals("Дать поручение");
+                || word.matches("^Дать поручение пользователю: ([a-z0-9]+)\\nДетали: ([А-яA-z0-9-_@ !,./|%$#\"'*&?+)(^;№:=]+)\\nВремя окончания поручения: (\\d{1,2}.\\d{1,2}.\\d{4}) (\\d{1,2}:\\d{1,2})$")
+                || word.matches("^Дать поручение группе: ([A-zА-я-]+)\\nДетали: ([А-яA-z0-9-_@ !,./|%$#\"'*&?+)(^;№:=]+)\\nВремя окончания поручения: (\\d{1,2}.\\d{1,2}.\\d{4}) (\\d{1,2}:\\d{1,2})$");
     }
-
-    /*
-    * Дать поручение Пользователи ИЛИ Группа
-    * Детали поручения
-    * Время окончания поручения в формате ДД.ММ.ГГГГ ЧЧ:ММ
-    * */
-    //TODO
-    @SneakyThrows
-    private void commandGiveTask(Update update){
-        DateTime dateTime = new DateTime(2022, 3, 30, 13, 18, 0);//Пользователь ввёл дедлайн
-        Long idUserTo = 641955034L;
-        Long idUserFrom = update.getMessage().getChatId();
-        String detail = "Покушац";
-        //добавляем в базу
-        databaseControl.createAssignment(idUserFrom, idUserTo, null, detail, dateTime);
-        Long idAssignment = databaseControl.getLastIdFromAssigment();//вытаскиваем айди из базы
-        Timer timer = new Timer(
-                dateTime,
-                new Assignment(
-                    idAssignment, idUserFrom, idUserTo, detail, dateTime, "", "", false, true
-                ),
-                this
-        );
-        new Thread(timer).start();
-        execute(SendMessage.builder().chatId(idUserTo.toString()).text("Тебе тип дали поручение пожрать от пользователя " + databaseControl.getUserCodeByUserId(idUserFrom)).build());
-    }//Пользователь может сдавать задачи, указывая айди
 
     /**
      * Метод, в зависимости от типа Update, вызывает метод его обработки.
@@ -120,7 +98,6 @@ public class TelegramBot extends TelegramLongPollingBot {
     private synchronized void sendAnswer(Update update) {
         switch (this.type) {
             case MESSAGE -> sendMessage(update);
-            case CALLBACK -> sendCallback(update);
             case OTHER -> sendOther(update);
         }
     }
@@ -133,236 +110,40 @@ public class TelegramBot extends TelegramLongPollingBot {
         String message = update.getMessage().getText();
         switch (message) {
             case "/start":
-                commandStart(update);
+                this.commandHandlerStart.commandStart(update);
                 return;
             case "/help":
-                commandHelp(update);
+                this.commandHandlerHelp.commandHelp(update);
                 return;
             case "Мои группы":
-                commandShowGroups(update);
+                this.commandHandlerGroup.commandShowGroups(update);
                 return;
             case "Мой код":
-                commandShowCode(update);
+                commandHandlerShowCode.commandShowCode(update);
                 return;
             default:
-                if (message.matches("^([Сс])оздать группу ([A-Za-zа-яА-Я-]+)$")){
-                    createGroup(message, update);
-                } else if (message.matches("^([Дд])обавить в ([A-Za-zа-яА-Я-]+) участников ([A-Za-z0-9,]+)$")){
-                    addUsersToGroup(message, update);
-                } else if (message.matches("^([Вв])ыйти из группы ([A-Za-zА-Яа-я-]+)$")){
-                    exitFromGroup(update);
+                if (message.matches("^([Сс])оздать группу: ([A-zА-я-]+)$")){
+                    this.commandHandlerGroup.createGroup(message, update);
+                } else if (message.matches("^([Дд])обавить в: ([A-zА-я-]+) ([a-z0-9, ]+)$")){
+                    this.commandHandlerGroup.addUsersToGroup(message, update);
+                } else if (message.matches("^([Вв])ыйти из группы: ([A-zА-я-]+)$")){
+                    this.commandHandlerGroup.exitFromGroup(message, update);
+                } else if (message.matches("^([Дд])ать поручение пользователю: ([a-z0-9]+)\\nДетали: ([А-яA-z0-9-_@ !,./|%$#\"'*&?+)(^;№:=]+)\\nВремя окончания поручения: (\\d{1,2}.\\d{1,2}.\\d{4}) (\\d{1,2}:\\d{1,2})$")){
+                    this.commandHandlerAssignment.commandGiveTaskToUser(message, update);
+                } else if (message.matches("^([дД])ать поручение группе: ([A-zА-я-]+)\\nДетали: ([А-яA-z0-9-_@ !,./|%$#\"'*&?+)(^;№:=]+)\\nВремя окончания поручения: (\\d{1,2}.\\d{1,2}.\\d{4}) (\\d{1,2}:\\d{1,2})$")){
+                    commandHandlerAssignment.commandGiveTaskToGroup(message, update);
                 }
-                commandGiveTask(update);
                 return;
         }
     }
 
-    private void exitFromGroup(Update update){//16
-        String subMessage = update.getMessage().getText().substring(16);
-        String groupName = getGroupNameFromString(subMessage);
-        databaseControl.deleteUserFromGroupById(update.getMessage().getChatId(), groupName);
-    }
-
-    @SneakyThrows
-    private void commandShowCode(Update update){
-        Long userId = update.getMessage().getChatId();
-        String text = "Ваш код: " + databaseControl.getUserCodeByUserId(userId);
-        execute(SendMessage.builder().text(text).chatId(userId.toString()).build());
-    }
-
-    /**
-     * Метод создаёт в БД группу с заданным именем.
-     */
-    @SneakyThrows
-    private void createGroup(String message, Update update){//15 обрезать
-        String subMessage = message.substring(15);
-        String groupName = getGroupNameFromString(subMessage);
-        databaseControl.createGroup(groupName);
-        execute(SendMessage.builder().chatId(update.getMessage().getChatId().toString()).text("Группа успешно создана").build());
-    }
-
-    /**
-     * Метод добавляет указанных пользователей в указанную группу
-     */
-    private void addUsersToGroup(String message, Update update){//11 первых обрезать
-        String subMessage = message.substring(11);
-        String groupName = getGroupNameFromString(subMessage);
-        ArrayList<String> usersCode = getUsersCode(subMessage);
-        System.out.println(groupName);
-        usersCode.stream().forEach(e-> System.out.println(e));
-        for (int i = 0; i < usersCode.size(); i++) {
-            databaseControl.addToGroup(usersCode.get(i), groupName);
-            sendMessageAboutToGroupAdd(update, groupName, usersCode.get(i));
-        }
-    }
-
-    /**
-     * Метод отправляет пользователям сообщение о том, что их добавили в группу и о том, кто их добавил
-     */
-    @SneakyThrows
-    private void sendMessageAboutToGroupAdd(Update update, String groupName, String userCode){
-        String chatId = databaseControl.getUserByCode(userCode).getId().toString();
-        String text = "Здравствуйте!\nПользователь " + update.getMessage().getFrom().getFirstName() + " с личным кодом " +
-                databaseControl.getUserCodeByUserId(update.getMessage().getChatId()) + " добавил Вас в группу " + groupName;
-        execute(SendMessage.builder().chatId(chatId).text(text).build());
-    }
-
-    /**
-     * Извлекает из строки коды пользователей, которых нужно добавить в группу.
-     */
-    private ArrayList<String> getUsersCode(String sumMessage){
-        String code = "";
-        sumMessage += ",";
-        ArrayList<String> codes = new ArrayList<>();
-        int i = 0;
-        while (sumMessage.charAt(i) != ' ')
-            i++;
-        i++;
-        while (sumMessage.charAt(i) != ' ')
-            i++;
-        i++;
-        while (i < sumMessage.length()){
-            if (sumMessage.charAt(i)!=','){
-                code += sumMessage.charAt(i);
-            } else{
-                codes.add(code);
-                code = "";
-            }
-            i++;
-        }
-        return codes;
-    }
-
-
-    /**
-     * Извлекает из подстроки название группы.
-     */
-    private String getGroupNameFromString(String message){
-        String subMessage = "";
-        int i = 0;
-        while (i < message.length() && message.charAt(i) != ' '){
-            subMessage += message.charAt(i);
-            i++;
-        }
-        return subMessage;
-    }
-
-    //TODO добавлять сюда список с командами по мере их появления
-    /**
-     *Обработчик срабатывает при команде /help.
-     * Выводит небольшую справку с прикреплённой клавиатурой.
-     */
-    @SneakyThrows
-    private void commandHelp(Update update) {
-        String messageText = "Доступные команды:\n" +
-                "1) \"Мои группы\" - выводит группы, в которые вас добавили\n" +
-                "2) \"Создать группу Имя\" - создаёт группу с названием \"Имя\". Имя вашей группы должно быть " +
-                "написано кириллицей или латинецей, однако будьте " +
-                "внимательны, имя группы может состоять из нескольких слов, но они должны быть разделены знаком \"-\"." +
-                " Например, название группы \"Группа дизайнеров online\" является недопустимым, но \"Группа-дизайнеров-online\" " +
-                "уже будет допустимым.\n" +
-                "3) \"Мой код\" - выводит ваш персональный код. Можете сказать его тому, с кем будете пользоваться данным ботом" +
-                ". Персональный код нужен для того, чтобы добавить пользователя в группу или дать поручение конкретному пользователю.\n" +
-                "4) \"Добавить в Имя участников Коды\" - добавляет пользователей в группу. Для этого есть два условия:\n- " +
-                "Вы должны знать код человека, которого хотите добавить\n- Группа, в которую вы хотите добавить, должна быть" +
-                " предворительно создана\nВ данной команде \"Имя\" - точное название Вашей группы, \"Коды\" - коды пользователей" +
-                ", вы можете указать код как одного пользователя, так и нескольких, разделённых запятой." +
-                " Например, такой формат является недопустимым \"a3e178, 981b42\", однако два следующих формата будут допустимыми" +
-                " \"156a89\" и \"156a89,a3e178,981b42\".\n" +
-                "5) \"Выйти из группы Имя\" - позволяет Вам выйти из группы с названием Имя.";
-        execute(
-                SendMessage.builder()
-                        .text(messageText)
-                        .chatId(update.getMessage().getChatId().toString())
-                        .replyMarkup(inlineKeyboardMarkup)
-                        .build()
-        );
-    }
-
-    /**
-     * Обработчик срабатывает при команде "Мои группы".
-     */
-    @SneakyThrows
-    private void commandShowGroups(Update update) {
-        ArrayList<Group> groups = databaseControl.getGroupsByUserId(update.getMessage().getChatId());
-        String message = !groups.isEmpty() ? getMessageUserGroups(groups) : getMessageUserGroupsNotFound();
-        execute(SendMessage.builder().chatId(update.getMessage().getChatId().toString()).text(message).build());
-    }
-
-    /**
-     * @param groups поступает список групп пользователя
-     * @return возвращается отформатированная строка со всеми группами пользователя
-     */
-    private String getMessageUserGroups(ArrayList<Group> groups){
-        String message = "Ваши группы:\n";
-        for (int i = 0; i < groups.size(); i++){
-            message += (i+1) + ") " + groups.get(i).getName() + "\n";
-        }
-        return message;
-    }
-
-    /**
-     * @return возвращается строка, в которой говорится, что пользователь не состоит ни в одной группе.
-     */
-    private String getMessageUserGroupsNotFound(){
-        return "Вы не состоите ни в одной группе.";
-    }
-
-    /**
-     * Действия, которые будут выполняться при команде /start.
-     * Добавляет юзера в БД, если его там ещё нет.
-     * Пишет юзеру приветствие.
-     */
-    @SneakyThrows
-    private void commandStart(Update update) {
-        Long userId = update.getMessage().getFrom().getId();
-        Code codeGenerator = new Code();
-        if (!isUserExist(userId)) {
-            String name = update.getMessage().getFrom().getFirstName();
-            String secondName = update.getMessage().getFrom().getUserName();
-            String code = codeGenerator.getUniqueCode();
-            databaseControl.addUser(userId, name, secondName, code);
-        }
-        sendGreeting(update);
-        commandShowCode(update);
-    }
-
-    /**
-     *Метод отправляет пользователю приветствие. Вызывается в методе commandStart.
-     */
-    //TODO доделывать приветствие
-    @SneakyThrows
-    private void sendGreeting(Update update) {
-        String messageText = "Здравствуйте, " + update.getMessage().getFrom().getFirstName() + ".\nЭтот бот предназначен для личного " +
-                "использования, " +
-                "вы можете использовать его как с семьёй, так и на работе." +
-                "\nВы можете, например, дать поручение другу и следить за его выполнением. Просто начните пользоваться ботом, наберите" +
-                " /help или вводите команды вручную.";
-        execute(SendMessage.builder().chatId(update.getMessage().getChatId().toString()).text(messageText).build());
-    }
-
-    /**
-     * @param id нужен для запроса в бд, чтобы проверить, нет ли юзера с данным id уже в базе данных.
-     * @return возвращает true, если пользователь уже есть в базе данных.
-     */
-    private Boolean isUserExist(Long id) {
-        return databaseControl.getUserById(id) != null;
-    }
-
-    //TODO Сделать метод колбека
-    /**
-     * Метод обрабатывает колбеки кнопок.
-     */
-    private void sendCallback(Update update) {
-
-    }
 
     /**
      * Метод отправляет пользователю сообщение о том, что действие нераспознанное.
      */
     @SneakyThrows
     private void sendOther(Update update) {
-        execute(SendMessage.builder().chatId(update.getMessage().getChatId().toString()).text("Действие нераспознанно. Пожалуйста, вызовите помощь командой /help").build());
+        execute(SendMessage.builder().chatId(update.getMessage().getChatId().toString()).text("Действие нераспознано. Пожалуйста, вызовите помощь командой /help").build());
     }
 
     /**
@@ -371,10 +152,40 @@ public class TelegramBot extends TelegramLongPollingBot {
     //TODO добавлять кнопки
     public void initKeyboard() {
         inlineKeyboardMarkup = new InlineKeyboardMarkup();
+        /**
+         * Первый ряд кнопок
+         */
         List<InlineKeyboardButton> buttonsRow1 = new ArrayList<>();
         buttonsRow1.add(InlineKeyboardButton.builder().text("Мои группы").switchInlineQueryCurrentChat("Мои группы").build());
+        buttonsRow1.add(InlineKeyboardButton.builder().text("Создать группу").switchInlineQueryCurrentChat("Создать группу: ИМЯ-ГРУППЫ").build());
+        buttonsRow1.add(InlineKeyboardButton.builder().text("Мой код").switchInlineQueryCurrentChat("Мой код").build());
+        /**
+         * Второй ряд кнопок
+         */
+        List<InlineKeyboardButton> buttonsRow2 = new ArrayList<>();
+        buttonsRow2.add(InlineKeyboardButton.builder().text("Добавить в группу").switchInlineQueryCurrentChat("Добавить в: НАЗВАНИЕ-ГРУППЫ a1234b,1abcd2,50912e").build());
+        buttonsRow2.add(InlineKeyboardButton.builder().text("Выйти из группы").switchInlineQueryCurrentChat("Выйти из группы: НАЗВАНИЕ-ГРУППЫ").build());
+        /**
+         * Третий ряд кнопок
+         */
+        List<InlineKeyboardButton> buttonsRow3 = new ArrayList<>();
+        buttonsRow3.add(InlineKeyboardButton.builder().text("Дать поручение пользователю").switchInlineQueryCurrentChat("Дать поручение пользователю: a1234b\nДетали: ДЕТАЛИ ПОРУЧЕНИЯ\nВремя окончания поручения: ДД.ММ.ГГГГ ЧЧ:ММ").build());
+        /**
+         * Четвёртый ряд кнопок
+         */
+        List<InlineKeyboardButton> buttonsRow4 = new ArrayList<>();
+        buttonsRow4.add(InlineKeyboardButton.builder().text("Дать поручение группе").switchInlineQueryCurrentChat("Дать поручение группе: НАЗВАНИЕ-ГРУППЫ\nДетали: ДЕТАЛИ ПОРУЧЕНИЯ\nВремя окончания поручения: ДД.ММ.ГГГГ ЧЧ:ММ").build());
+        /**
+         * Объединение рядов
+         */
         List<List<InlineKeyboardButton>> rowArrayList = new ArrayList<>();
         rowArrayList.add(buttonsRow1);
+        rowArrayList.add(buttonsRow2);
+        rowArrayList.add(buttonsRow3);
+        rowArrayList.add(buttonsRow4);
+        /**
+         * Добавление рядов в объект клавиатуры
+         */
         inlineKeyboardMarkup.setKeyboard(rowArrayList);
     }
 
@@ -385,4 +196,4 @@ public class TelegramBot extends TelegramLongPollingBot {
         TelegramBotsApi telegramBotsApi = new TelegramBotsApi(DefaultBotSession.class);
         telegramBotsApi.registerBot(telegramBot);
     }
-}//TODO выйти из группы, удалить группы(если в ней никого нет), дать поручение пользователю, дать поручение группе.
+}

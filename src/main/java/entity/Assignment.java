@@ -31,7 +31,7 @@ public class Assignment extends BaseEntity{
     }
 
     //Если поручение группе
-    public Assignment(Long id, Long idUserFrom, String detail, DateTime date, String report, String edits, Boolean done, Long idGroupTo, Boolean open){
+    public Assignment(Long id, Long idUserFrom, Long idUserTo, String detail, DateTime date, String report, String edits, Boolean done, Long idGroupTo, Boolean open){
         super(id);
         this.idUserFrom = idUserFrom;
         this.detail = detail;
@@ -41,5 +41,6 @@ public class Assignment extends BaseEntity{
         this.done = done;
         this.idGroupTo = idGroupTo;
         this.open = open;
+        this.idUserTo = idUserTo;
     }
 }

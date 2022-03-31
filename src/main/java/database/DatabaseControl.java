@@ -155,7 +155,7 @@ public class DatabaseControl {
     }
 
     @SneakyThrows
-    private Long getGroupIdByGroupName(String groupName){
+    public Long getGroupIdByGroupName(String groupName){
         connectToDB();
         PreparedStatement statement = connection.prepareStatement("select id from t_group where name = ?");
         statement.setString(1, groupName);
@@ -164,6 +164,21 @@ public class DatabaseControl {
         Long id = result.getLong("id");
         disconnectBD();
         return id;
+    }
+
+    @SneakyThrows
+    public ArrayList<Long> getUsersByGroupName(String groupName){
+        Long groupId = getGroupIdByGroupName(groupName);
+        connectToDB();
+        ArrayList<Long> usersId = new ArrayList<>();
+        PreparedStatement preparedStatement = connection.prepareStatement("select id_user from groups where id_group = ?");
+        preparedStatement.setLong(1, groupId);
+        ResultSet result = preparedStatement.executeQuery();
+        while (result.next()){
+            usersId.add(result.getLong("id_user"));
+        }
+        disconnectBD();
+        return usersId;
     }
 
     @SneakyThrows
